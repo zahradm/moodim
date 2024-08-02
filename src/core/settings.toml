@@ -1,0 +1,6 @@
+[db]
+user_name = "postgres"
+password = "postgres"
+port = "5432"
+host = "0.0.0.0"
+db_name = "postgres"
