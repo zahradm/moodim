@@ -25,7 +25,7 @@ class User(Base):
         result = await db.execute(query)
         await db.commit()
         new = result.first()
-        return schemas.UserSerialiser.from_orm(new).dict()
+        return schemas.UserSerializer.from_orm(new).dict()
 
     @classmethod
     async def update(cls, db, id, **kwargs):
@@ -39,7 +39,7 @@ class User(Base):
         result = await db.execute(query)
         await db.commit()
         updated_user = result.first()
-        return schemas.UserSerialiser.from_orm(updated_user).dict()
+        return schemas.UserSerializer.from_orm(updated_user).dict()
 
     @classmethod
     async def get(cls, db, id):
@@ -47,7 +47,7 @@ class User(Base):
         result = await db.execute(query)
         user = result.scalar_one_or_none()
         if user:
-            return schemas.UserSerialiser.from_orm(user).dict()
+            return schemas.UserSerializer.from_orm(user).dict()
 
         return None
 
@@ -56,7 +56,7 @@ class User(Base):
         query = sql.select(cls)
         result = await db.execute(query)
         users = result.scalars().all()
-        return [schemas.UserSerialiser.from_orm(user).dict() for user in users]
+        return [schemas.UserSerializer.from_orm(user).dict() for user in users]
 
     @classmethod
     async def delete(cls, db, id):
