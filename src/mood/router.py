@@ -4,15 +4,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core import db
+from src.core.redis import redis_client
 from src.mood import models, schemas
-
-
-logger = logging.getLogger(__name__)
-api = APIRouter(prefix="/moods")
-
 
 logger = logging.getLogger(__name__)
 api = APIRouter(prefix="/mood")
+
+CACHE_EXPIRATION_TIME = 60 * 60
 
 
 @api.post("/", response_model=dict)
@@ -46,9 +44,19 @@ async def update_mood(
 async def get_mood(
     user_id: int, start_date: str, end_date: str, db: AsyncSession = Depends(db.get_db)
 ):
+    cache_key = f"moods:{user_id}"
+    cached_moods = await redis_client.get(cache_key)
+
+    if cached_moods:
+        logger.info("Returning cached mood data")
+        return cached_moods
+
     moods = await models.Mood.get_moods(db, user_id, start_date, end_date)
     if moods is None:
         raise HTTPException(status_code=404, detail="Mood not found")
+
+    await redis_client.set(cache_key, moods, ex=CACHE_EXPIRATION_TIME)
+
     return moods
 
 
