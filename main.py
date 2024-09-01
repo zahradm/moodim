@@ -1,9 +1,8 @@
-# Ensure this imports the global db instance
 import logging
 
 import uvicorn
 from fastapi import FastAPI
-from src.user import router
+from src import mood, user
 
 logger = logging.getLogger(__name__)
 
@@ -11,7 +10,8 @@ logger = logging.getLogger(__name__)
 def init_app():
     app = FastAPI()
 
-    app.include_router(router.api, prefix="/api")
+    app.include_router(user.router.api, prefix="/v1")
+    app.include_router(mood.router.api, prefix="/v1")
 
     return app
 
