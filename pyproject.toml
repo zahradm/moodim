@@ -19,7 +19,6 @@ pre-commit = "^3.8.0"
 passlib = "^1.7.4"
 bcrypt = "^4.2.0"
 pyjwt = "^2.9.0"
-python-jose = "^3.3.0"
 aioredis = "^2.0.1"
 
 
