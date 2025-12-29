@@ -1,10 +1,17 @@
+"""
+Database session management for the Moodim application.
+"""
+
 import logging
 from asyncio import current_task
+from contextlib import asynccontextmanager
+from typing import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import (
     async_scoped_session,
     async_sessionmaker,
     AsyncEngine,
+    AsyncSession,
     create_async_engine,
 )
 
@@ -17,6 +24,8 @@ logging.basicConfig(level=logging.INFO)
 
 
 class Config:
+    """Database configuration from settings."""
+
     DB_USER = config.config.username
     DB_PASSWORD = config.config.password
     DB_HOST = config.config.host
@@ -27,45 +36,95 @@ class Config:
 
 
 class DatabaseSessionManager:
-    def __init__(self):
-        self.engine: AsyncEngine | None = None
-        self.session_maker = None
-        self.session = None
+    """
+    Manages database sessions for async operations.
 
-    def init_db(self):
+    This class handles the lifecycle of database connections and sessions,
+    providing context managers for safe session handling.
+    """
+
+    def __init__(self) -> None:
+        """Initialize the session manager."""
+        self.engine: AsyncEngine | None = None
+        self.session_maker: async_sessionmaker | None = None
+        self._session: async_scoped_session | None = None
+
+    def init_db(self) -> None:
+        """
+        Initialize the database engine and session factory.
+
+        Creates an asynchronous engine with connection pooling
+        and sets up the session maker.
+        """
+        if self.engine is not None:
+            return  # Already initialized
+
         # Creating an asynchronous engine
         self.engine = create_async_engine(
-            Config.DB_CONFIG, pool_size=100, max_overflow=0, pool_pre_ping=True
+            Config.DB_CONFIG,
+            pool_size=100,
+            max_overflow=0,
+            pool_pre_ping=True,
         )
 
         # Creating an asynchronous session class
         self.session_maker = async_sessionmaker(
-            autocommit=False, autoflush=False, bind=self.engine
+            autocommit=False,
+            autoflush=False,
+            bind=self.engine,
+            class_=AsyncSession,
+            expire_on_commit=False,
         )
 
         # Creating a scoped session
-        self.session = async_scoped_session(self.session_maker, scopefunc=current_task)
+        self._session = async_scoped_session(
+            self.session_maker,
+            scopefunc=current_task,
+        )
 
-    async def close(self):
-        # Closing the database session
+    @asynccontextmanager
+    async def session(self) -> AsyncGenerator[AsyncSession, None]:
+        """
+        Provide a transactional scope around a series of operations.
+
+        Yields:
+            AsyncSession: Database session for operations.
+        """
+        if self.session_maker is None:
+            self.init_db()
+
+        assert self.session_maker is not None, "Session maker not initialized"
+        session = self.session_maker()
+        try:
+            yield session
+        except Exception as e:
+            logger.error(f"Session error: {e}")
+            await session.rollback()
+            raise
+        finally:
+            await session.close()
+
+    async def close(self) -> None:
+        """Close the database engine and dispose of connections."""
         if self.engine is None:
             raise Exception("DatabaseSessionManager is not initialized")
         await self.engine.dispose()
+        self.engine = None
+        self.session_maker = None
+        self._session = None
 
 
 # Initialize the DatabaseSessionManager
 sessionmanager = DatabaseSessionManager()
 
 
-async def get_db():
-    sessionmanager.init_db()  # Initialize the database session manager
-    async_session = sessionmanager.session()
-    try:
-        yield async_session
-    except Exception as e:
-        logger.error(f"An error occurred: {e}")
-        await async_session.rollback()
-        raise
-    finally:
-        await async_session.close()
-        await sessionmanager.close()
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    """
+    Dependency injection for database sessions.
+
+    Yields:
+        AsyncSession: Database session for request handling.
+    """
+    sessionmanager.init_db()
+    async with sessionmanager.session() as session:
+        yield session

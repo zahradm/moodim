@@ -1,0 +1,3 @@
+"""
+Mood DTOs package.
+"""

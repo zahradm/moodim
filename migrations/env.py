@@ -27,7 +27,7 @@ target_metadata = models.Base.metadata
 
 
 config.set_main_option(
-    "sqlalchemy.url", "postgresql://postgres:postgres@0.0.0.0/postgres"
+    "sqlalchemy.url", "postgresql://postgres:postgres@localhost/postgres"
 )
 
 

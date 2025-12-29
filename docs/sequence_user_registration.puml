@@ -1,0 +1,75 @@
+@startuml User Registration Flow
+
+title User Registration Sequence Diagram
+
+skinparam sequenceArrowThickness 2
+skinparam roundcorner 10
+skinparam maxmessagesize 200
+skinparam responseMessageBelowArrow true
+
+actor Client as client
+participant "FastAPI\nRouter" as router
+participant "User\nController" as controller
+participant "User\nLogic" as logic
+participant "User\nRepository" as repository
+participant "PostgreSQL\nDatabase" as db
+participant "Pydantic\nValidator" as validator
+
+== User Registration Flow ==
+
+client -> router: POST /v1/users/
+activate router
+
+router -> validator: Validate UserSchema
+activate validator
+
+alt Invalid Data
+    validator --> router: ValidationError
+    router --> client: 422 Unprocessable Entity
+else Valid Data
+    validator --> router: UserSchema validated
+    deactivate validator
+    
+    router -> controller: create_user(user: UserSchema)
+    activate controller
+    
+    controller -> logic: User.create(db, **user.dict())
+    activate logic
+    
+    logic -> db: INSERT INTO user\n(email, first_name, last_name, password)\nRETURNING email, first_name, last_name
+    activate db
+    
+    alt User Already Exists
+        db --> logic: IntegrityError (duplicate email)
+        logic --> controller: Exception
+        controller --> router: HTTPException(400)
+        router --> client: 400 Bad Request\n{"detail": "User creation failed"}
+    else Success
+        db --> logic: New user row
+        deactivate db
+        
+        logic -> logic: UserSerializer.from_orm(result)
+        logic --> controller: dict (serialized user)
+        deactivate logic
+        
+        controller --> router: dict
+        deactivate controller
+        
+        router --> client: 200 OK\n{\n  "email": "user@example.com",\n  "first_name": "John",\n  "last_name": "Doe",\n  "password": "***"\n}
+    end
+end
+
+deactivate router
+
+== Password Validation Detail ==
+
+note over validator
+    **Password Requirements:**
+    1. Length: 8-64 characters
+    2. At least one digit
+    3. At least one lowercase letter
+    4. At least one uppercase letter
+    5. At least one special character
+end note
+
+@enduml

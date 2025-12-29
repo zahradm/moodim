@@ -1,0 +1,161 @@
+@startuml Mood Tracking Flow
+
+title Mood Tracking with Caching Sequence Diagram
+
+skinparam sequenceArrowThickness 2
+skinparam roundcorner 10
+skinparam maxmessagesize 200
+skinparam responseMessageBelowArrow true
+
+actor Client as client
+participant "FastAPI\nRouter" as router
+participant "Mood\nController" as controller
+participant "Mood\nLogic" as logic
+participant "Redis\nCache" as redis
+participant "PostgreSQL\nDatabase" as db
+
+== Insert New Mood ==
+
+client -> router: POST /v1/mood/\n{\n  "user_id": 1,\n  "emotion": "HAPPINESS",\n  "percentage": 85.5,\n  "date": "2024-12-26"\n}
+activate router
+
+router -> controller: insert_mood(mood: MoodSchema)
+activate controller
+
+controller -> logic: Mood.insert_mood(db, **mood.dict())
+activate logic
+
+logic -> db: INSERT INTO mood\n(user_id, emotion, percentage, date)\nRETURNING user_id, emotion, percentage, date
+activate db
+
+db --> logic: New mood row
+deactivate db
+
+logic -> logic: MoodSerializer.from_orm(result)
+logic --> controller: dict (serialized mood)
+deactivate logic
+
+controller --> router: dict
+deactivate controller
+
+router --> client: 200 OK\n{"user_id": 1, "emotion": "HAPPINESS", ...}
+deactivate router
+
+== Get Mood History (with Caching) ==
+
+client -> router: GET /v1/mood/{user_id}/{start_date}/{end_date}
+activate router
+
+router -> controller: get_mood(user_id, start_date, end_date)
+activate controller
+
+controller -> redis: GET moods:{user_id}
+activate redis
+
+alt Cache Hit
+    redis --> controller: cached_moods (JSON)
+    deactivate redis
+    
+    note over controller: Return cached data\n(Skip DB query)
+    
+    controller --> router: list[MoodSerializer]
+    router --> client: 200 OK\n[{mood1}, {mood2}, ...]
+    
+else Cache Miss
+    redis --> controller: None
+    
+    controller -> logic: Mood.get_mood(db, user_id, start_date, end_date, redis)
+    activate logic
+    
+    logic -> db: SELECT * FROM mood\nWHERE user_id = ?\nAND date >= start_date\nAND date <= end_date
+    activate db
+    
+    alt No Moods Found
+        db --> logic: Empty result
+        deactivate db
+        logic --> controller: None
+        controller --> router: HTTPException(404)
+        router --> client: 404 Not Found\n{"detail": "Mood not found"}
+    else Moods Found
+        db --> logic: List of mood rows
+        deactivate db
+        
+        logic -> logic: Serialize moods to dict
+        
+        logic -> redis: SET moods:{user_id}\nEX 3600 (1 hour)
+        activate redis
+        redis --> logic: OK
+        deactivate redis
+        
+        logic --> controller: list[dict]
+        deactivate logic
+        
+        controller -> redis: SET moods:{user_id}\nEX 3600
+        activate redis
+        redis --> controller: OK
+        deactivate redis
+        
+        controller --> router: list[MoodSerializer]
+        deactivate controller
+        
+        router --> client: 200 OK\n[{mood1}, {mood2}, ...]
+    end
+end
+
+deactivate router
+
+== Update Mood ==
+
+client -> router: PUT /v1/mood/{user_id}/{date}/{emotion}\n{"percentage": 90.0}
+activate router
+
+router -> controller: update_mood(user_id, date, emotion, mood)
+activate controller
+
+controller -> logic: Mood.update_mood(db, user_id, date, emotion, percentage)
+activate logic
+
+logic -> db: UPDATE mood\nSET percentage = ?\nWHERE user_id = ? AND date = ? AND emotion = ?\nRETURNING *
+activate db
+
+alt Mood Not Found
+    db --> logic: No rows affected
+    deactivate db
+    logic --> controller: None
+    controller --> router: HTTPException(404)
+    router --> client: 404 Not Found
+else Success
+    db --> logic: Updated mood row
+    deactivate db
+    
+    logic --> controller: dict (updated mood)
+    deactivate logic
+    
+    note over controller
+        Cache should be invalidated
+        on update (improvement needed)
+    end note
+    
+    controller --> router: dict
+    deactivate controller
+    
+    router --> client: 200 OK\n{updated mood}
+end
+
+deactivate router
+
+== Cache Strategy Notes ==
+
+note over redis
+    **Cache Configuration:**
+    - Cache Key Pattern: moods:{user_id}
+    - TTL: 3600 seconds (1 hour)
+    - Cache Invalidation: Manual
+    
+    **Improvements Needed:**
+    - Invalidate cache on mood update
+    - Invalidate cache on mood delete
+    - Consider per-date-range caching
+end note
+
+@enduml

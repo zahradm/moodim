@@ -1,0 +1,3 @@
+"""
+Mood domain DTOs package.
+"""

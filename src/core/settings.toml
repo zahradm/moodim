@@ -2,5 +2,5 @@
 user_name = "postgres"
 password = "postgres"
 port = "5432"
-host = "0.0.0.0"
+host = "localhost"
 db_name = "postgres"

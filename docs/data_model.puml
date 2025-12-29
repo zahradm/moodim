@@ -1,0 +1,76 @@
+@startuml Data Model
+
+' Title and styling
+title Moodim - Data Model Documentation
+skinparam linetype ortho
+skinparam class {
+    BackgroundColor<<Entity>> LightBlue
+    BorderColor<<Entity>> DarkBlue
+    BackgroundColor<<Enum>> LightGreen
+    BorderColor<<Enum>> DarkGreen
+}
+
+' Enumerations
+enum EmotionEnum <<Enum>> {
+    HAPPINESS
+    SADNESS
+    FEAR
+    ANGER
+}
+
+' Entities
+class User <<Entity>> {
+    + id: Integer <<PK, Auto>>
+    + email: String(255) <<Unique, NotNull>>
+    + first_name: String(255) <<NotNull>>
+    + last_name: String(255) <<NotNull>>
+    + password: String(255) <<NotNull>>
+    --
+    + create(db, **kwargs): dict
+    + update(db, id, **kwargs): dict
+    + get(db, id): dict | None
+    + get_all(db): list[dict]
+    + delete(db, id): bool
+}
+
+class Mood <<Entity>> {
+    + id: Integer <<PK, Auto>>
+    + user_id: Integer <<FK, NotNull>>
+    + emotion: EmotionEnum <<NotNull>>
+    + percentage: Double <<NotNull>>
+    + date: Date <<NotNull>>
+    --
+    + insert_mood(db, **kwargs): dict
+    + get_mood(db, user_id, start_date, end_date, redis): list | None
+    + update_mood(db, user_id, date, emotion, percentage): dict | None
+    + delete_mood(db, user_id, date): bool
+}
+
+' Relationships
+User "1" -- "0..*" Mood : has >
+Mood --> EmotionEnum : uses >
+
+' Notes
+note right of User
+    **Validation Rules:**
+    - Email must end with @example.com
+    - Password: min 8, max 64 chars
+    - Password must contain:
+      - At least one digit
+      - At least one lowercase
+      - At least one uppercase
+      - At least one special char
+    - First/Last name: min 2 chars
+end note
+
+note right of Mood
+    **Caching:**
+    - Moods are cached in Redis
+    - Cache key: moods:{user_id}
+    - TTL: 1 hour (3600 seconds)
+    
+    **Constraints:**
+    - User + Date + Emotion is unique
+end note
+
+@enduml
